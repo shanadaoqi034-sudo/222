@@ -1,0 +1,9 @@
+Package: com.neostatus.tweak
+Name: NeoStatus
+Version: 1.0.0
+Architecture: iphoneos-arm64e
+Description: iOS 26-inspired Control Center preview and runtime diagnostics for iOS 17.0 RootHide (first source release).
+Maintainer: NeoStatus Project
+Author: NeoStatus Project
+Section: Tweaks
+Depends: firmware (>= 17.0), firmware (<< 18.0), ellekit, preferenceloader
