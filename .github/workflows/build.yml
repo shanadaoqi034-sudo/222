@@ -1,0 +1,87 @@
+name: Build NeoStatus
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Theos
+        run: |
+          set -e
+          export THEOS=$HOME/theos
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
+          git clone --recursive --depth 1 https://github.com/theos/theos.git "$THEOS"
+
+      - name: Install iOS SDK
+        run: |
+          set -e
+          export THEOS=$HOME/theos
+          mkdir -p "$THEOS/sdks"
+          cd /tmp
+          # theos/sdks 鎻愪緵鎵撳寘濂界殑 SDK
+          curl -fsSL -o sdks.tar.gz https://github.com/theos/sdks/archive/refs/heads/master.tar.gz
+          tar xzf sdks.tar.gz
+          # 浼樺厛鐢?17.x 鐨?SDK锛涙病鏈夊氨閫€鍒版渶鏂扮殑 16.x
+          if ls sdks-master/*17*.sdk >/dev/null 2>&1; then
+            cp -R sdks-master/*17*.sdk "$THEOS/sdks/"
+          else
+            cp -R sdks-master/iPhoneOS16*.sdk "$THEOS/sdks/" 2>/dev/null || \
+            cp -R sdks-master/iPhoneOS*.sdk "$THEOS/sdks/"
+          fi
+          ls -1 "$THEOS/sdks/"
+
+      - name: Show toolchain
+        run: |
+          export THEOS=$HOME/theos
+          echo "THEOS=$THEOS"
+          xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true
+          clang --version
+
+      - name: Build package
+        run: |
+          set -e
+          export THEOS=$HOME/theos
+          make clean || true
+          make package FINALPACKAGE=1
+
+      - name: Verify architecture
+        run: |
+          set -e
+          DEB=$(ls packages/*.deb | head -1)
+          echo "=== DEB: $DEB ==="
+          mkdir -p /tmp/verify && cd /tmp/verify
+          ar x "$OLDPWD/$DEB" 2>/dev/null || ar x "$GITHUB_WORKSPACE/$DEB"
+          mkdir -p x && cd x
+          tar -xf ../data.tar.lzma 2>/dev/null || tar --use-compress-program=xz -xf ../data.tar.lzma || tar -xf ../data.tar.gz
+          echo "--- control ---"
+          cat ../control 2>/dev/null || (cd .. && mkdir -p ctl && tar -xzf control.tar.gz -C ctl && cat ctl/control)
+          echo "--- files ---"
+          find . -type f | sort
+          echo "--- architectures ---"
+          for f in $(find . -type f \( -name "*.dylib" -o -perm -111 \)); do
+            echo "$f:"
+            lipo -info "$f" 2>/dev/null || file "$f"
+          done
+          echo ""
+          echo "=== 鍏抽敭妫€鏌ワ細dylib 蹇呴』鍚?arm64e ==="
+          DYLBIN=$(find . -name "NeoStatus.dylib" | head -1)
+          if lipo -info "$DYLBIN" 2>/dev/null | grep -q arm64e; then
+            echo "PASS: dylib has arm64e slice"
+          else
+            echo "FAIL: dylib has NO arm64e slice -> will NOT inject into SpringBoard"
+            exit 1
+          fi
+
+      - name: Upload DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: NeoStatus-deb
+          path: packages/*.deb
+          if-no-files-found: error
